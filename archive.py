@@ -22,11 +22,11 @@ archive.py — IncandescenceReader 一体化存档工具
   python ../../archive.py <子命令> [选项]
 
 公开账号工作流（Wayback）：
+  python ../../archive.py fetch-cdx <username>
   python ../../archive.py fetch-html
   python ../../archive.py fetch-media
-  python ../../archive.py clean-html
   python ../../archive.py build-index
-  # 或一把梭：
+  # 或一把梭（不含 fetch-cdx）：
   python ../../archive.py all
 
 私密账号工作流（dump 转换）：
@@ -159,7 +159,7 @@ HEADERS_TWITTER_REFERER = {**HEADERS, "Referer": "https://twitter.com/"}
 REQUEST_ATTEMPTS   = 5   # 网络瞬断/超时/SSL 的最大重试次数；4xx 本身不重试
 BACKOFF_BASE       = 0.4
 BACKOFF_JITTER_MAX = 0.2
-MAX_BACKOFF        = 120.0
+MAX_BACKOFF        = 60.0
 
 # 媒体下载 timeout —— 元组形式 (connect_timeout, read_timeout)
 # connect 给 5s（正常 TCP 握手远不需要这么久，超过说明服务器限速/不可达）
@@ -1664,7 +1664,7 @@ def clean_html_text(html_text: str, source_url: str, media_index: MediaIndex) ->
 # ============================================================================
 #
 # 一次下载，同时完成两件事：
-#   1. 把 wayback 原始 HTML 写到 html/{safe_filename}.html（未清洗，等 clean-html 处理）
+#   1. 把 wayback 原始 HTML 写到 html/{safe_filename}.html
 #   2. 从同一份 HTML 里提取 jsonview，写到 json/{safe_filename}.json
 #
 # 这样替代了原本 fetch_json.py + 0037.py 的网络下载部分（原来要请求两次同一 URL）。
@@ -1699,7 +1699,7 @@ def _process_one_snapshot(snapshot: tuple[str, str], force: bool,
         maybe_record_negative(wayback_url, e)
         return False, wayback_url, f"HTML 下载失败：{type(e).__name__}: {e}"
 
-    # 写 HTML（未清洗，clean-html 阶段再处理）
+    # 写 HTML（原始 wayback 快照，媒体路径由前端动态替换）
     try:
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html_text)
@@ -1901,11 +1901,10 @@ def _download_one_image(item: dict, snapshot_ts: str, media_index: MediaIndex,
     url = item["url"]
     basename = extract_image_basename(url)
 
-    # 已有的跳过（本地已存在 = 之前下成功过）
-    if not force and basename:
+    # 本地文件实际存在就跳过（force 时绕过 archive_index 状态，但不绕过本地文件）
+    if basename:
         existing = media_index.find_image(basename)
         if existing and os.path.exists(os.path.join(IMAGE_DIR, existing)):
-            # 同步状态：本地已有 = done
             set_status(KIND_IMAGE, url, STATUS_DONE)
             return True, ""
 
@@ -1938,7 +1937,7 @@ def _download_one_video(item: dict, snapshot_ts: str, media_index: MediaIndex,
                        force: bool) -> tuple[bool, str]:
     url = item["url"]
     key = extract_video_media_key(url)
-    if not force and key:
+    if key:
         existing = media_index.find_video(key)
         if existing and os.path.exists(os.path.join(VIDEO_DIR, existing)):
             set_status(KIND_VIDEO, url, STATUS_DONE)
@@ -1986,13 +1985,12 @@ def _download_one_avatar(item: dict, snapshot_ts: str, media_index: MediaIndex,
         set_status(KIND_AVATAR, url, STATUS_FAILED_ALL, reason="无法识别 profile pid")
         return False, "无法识别 profile pid"
 
-    # 复用检查
-    if not force:
-        existing, hit = media_index.find_avatar(pid=pid, name=name, username=username)
-        if existing:
-            media_index.register_avatar(pid, name, username, existing)
-            set_status(KIND_AVATAR, url, STATUS_DONE)
-            return True, f"复用本地（按 {hit} 命中）"
+    # 复用检查（本地有就跳过，force 时也检查本地文件）
+    existing, hit = media_index.find_avatar(pid=pid, name=name, username=username)
+    if existing:
+        media_index.register_avatar(pid, name, username, existing)
+        set_status(KIND_AVATAR, url, STATUS_DONE)
+        return True, f"复用本地（按 {hit} 命中）"
 
     candidates = build_avatar_candidate_urls(url, snapshot_ts)
     ext = ext_from_url(url)
@@ -5058,7 +5056,7 @@ def cmd_render_html(args: argparse.Namespace) -> int:
 # ── 子命令: all ─────────────────────────────────────────────────────────────
 # ============================================================================
 #
-# 按顺序跑 fetch-html → fetch-media → clean-html → build-index。
+# 按顺序跑 fetch-html → fetch-media → build-index。
 # 任何一步失败都继续往下走（保留失败列表供 --retry 用），但最终返回非零退出码。
 # ============================================================================
 
@@ -5066,7 +5064,7 @@ def cmd_all(args: argparse.Namespace) -> int:
     overall = 0
 
     safe_print("\n╔══════════════════════════════════════════════════════════╗")
-    safe_print("║  Phase 1/4: fetch-html                                   ║")
+    safe_print("║  Phase 1/3: fetch-html                                   ║")
     safe_print("╚══════════════════════════════════════════════════════════╝")
     a1 = argparse.Namespace(
         retry=False, force=False, file=None,
@@ -5075,7 +5073,7 @@ def cmd_all(args: argparse.Namespace) -> int:
     overall |= cmd_fetch_html(a1)
 
     safe_print("\n╔══════════════════════════════════════════════════════════╗")
-    safe_print("║  Phase 2/4: fetch-media                                  ║")
+    safe_print("║  Phase 2/3: fetch-media                                  ║")
     safe_print("╚══════════════════════════════════════════════════════════╝")
     a2 = argparse.Namespace(
         retry=False, force=False, file=None,
@@ -5084,16 +5082,10 @@ def cmd_all(args: argparse.Namespace) -> int:
     overall |= cmd_fetch_media(a2)
 
     safe_print("\n╔══════════════════════════════════════════════════════════╗")
-    safe_print("║  Phase 3/4: clean-html                                   ║")
+    safe_print("║  Phase 3/3: build-index                                  ║")
     safe_print("╚══════════════════════════════════════════════════════════╝")
-    a3 = argparse.Namespace(retry=False, force=False, file=None, workers=4)
-    overall |= cmd_clean_html(a3)
-
-    safe_print("\n╔══════════════════════════════════════════════════════════╗")
-    safe_print("║  Phase 4/4: build-index                                  ║")
-    safe_print("╚══════════════════════════════════════════════════════════╝")
-    a4 = argparse.Namespace()
-    overall |= cmd_build_index(a4)
+    a3 = argparse.Namespace()
+    overall |= cmd_build_index(a3)
 
     safe_print("\n[all] 全部阶段完成")
     return overall
