@@ -64,10 +64,10 @@ jobs:
         run: |
           U="${{ steps.info.outputs.username }}"
           curl -fsSL \
-            "https://raw.githubusercontent.com/sjshb57/AnIncanescence/main/index.html" \
+            "https://raw.githubusercontent.com/sjshb57/Test/main/index.html" \
             -o index.html
           curl -fsSL \
-            "https://raw.githubusercontent.com/sjshb57/AnIncanescence/main/.nojekyll" \
+            "https://raw.githubusercontent.com/sjshb57/Test/main/.nojekyll" \
             -o .nojekyll
           sed -i "s/const ACCOUNTS_HARDCODED = \['AnIncandescence', 'TauCeti_10700'\]/const ACCOUNTS_HARDCODED = ['$U']/" index.html
           echo "✅ index.html + .nojekyll（已替换用户名）"
