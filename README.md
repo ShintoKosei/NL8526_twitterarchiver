@@ -304,26 +304,6 @@ DEFAULT_DELAY_MEDIA    = 0.08
 
 ---
 
-## 从旧版迁移
-
-如果之前使用的是独立脚本（`fetch_json.py`、`fetch_media.py`、`build_index.py` 等），可以用以下命令迁移状态文件：
-
-```bash
-cd accounts/{USERNAME}
-mkdir wayback_snapshots/_log
-
-mv wayback_snapshots/_done_list.txt         wayback_snapshots/_log/html_done.txt
-mv wayback_snapshots/_done_list_media.txt   wayback_snapshots/_log/media_done.txt
-mv wayback_snapshots/_html_failed.txt       wayback_snapshots/_log/html_failed.txt
-mv wayback_snapshots/_media_failed.txt      wayback_snapshots/_log/media_failed.txt
-mv wayback_snapshots/_avatars_failed.txt    wayback_snapshots/_log/avatar_failed.txt
-rm -f wayback_snapshots/_negative_cache.json
-
-python archive.py rebuild-index
-```
-
----
-
 ## License
 
 Copyright © 2026 sjshb57
