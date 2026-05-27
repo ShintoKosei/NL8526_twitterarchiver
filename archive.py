@@ -910,7 +910,7 @@ _IMG_BASENAME_OLD_RE = re.compile(
 _IMG_URL_BASENAME_RE = re.compile(
     r"pbs\.twimg\.com/media/([A-Za-z0-9_\-]+?)(?:\.(?:jpg|png|gif|webp|jpeg))?$",
 )
-_VIDEO_KEY_RE  = re.compile(r"(?:amplify_video|ext_tw_video|tweet_video)[/_](\d+)")
+_VIDEO_KEY_RE  = re.compile(r"(?:amplify_video|ext_tw_video)[/_](\d+)|tweet_video[/_]([A-Za-z0-9]+)")
 _AVATAR_PID_RE = re.compile(r"^avatar_(\d+)\.(?:jpg|png|gif|webp|jpeg)$", re.IGNORECASE)
 _PROFILE_URL_PID_RE = re.compile(r"/profile_images/(\d+)/")
 _TIMESTAMP_PREFIX_RE = re.compile(r"^(\d{14})_")
@@ -933,7 +933,11 @@ def extract_image_basename(s: str) -> str:
 
 def extract_video_media_key(s: str) -> str:
     m = _VIDEO_KEY_RE.search(s)
-    return m.group(1) if m else ""
+    if not m:
+        return ""
+    # group(1): amplify_video/ext_tw_video（纯数字）
+    # group(2): tweet_video（字母数字，animated_gif）
+    return m.group(1) or m.group(2) or ""
 
 
 def extract_profile_image_id(url: str) -> str:
@@ -3453,6 +3457,45 @@ def cmd_build_index(args: argparse.Namespace) -> int:
     tweet_id_index = _bi_build_tweet_id_index()
     safe_print(f"本地推文索引：{len(tweet_id_index)} 条 tweet_id（用于祖先链追溯）\n")
 
+    # 读取 profile.json 的置顶 tweet_id
+    pinned_tweet_id = ""
+    _profile_path = os.path.join(OUTPUT_DIR, "profile.json")
+    _prof: dict = {}
+    if os.path.exists(_profile_path):
+        try:
+            with open(_profile_path, encoding="utf-8") as _pf:
+                _prof = json.load(_pf)
+            pinned_tweet_id = str(_prof.get("pinned", "")).strip()
+        except Exception:
+            pass
+    if pinned_tweet_id:
+        safe_print(f"置顶推文 tweet_id：{pinned_tweet_id}")
+
+    # 如果 profile.json 里还没有 bio_entities，从 JSON 文件里提取主用户的 description entities
+    if not _prof.get("bio_entities") and os.path.isdir(JSON_DIR):
+        _username = _prof.get("username", "").lstrip("@").lower()
+        _found_entities = False
+        for _jfname in sorted(os.listdir(JSON_DIR)):
+            if not _jfname.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(JSON_DIR, _jfname), encoding="utf-8") as _jf:
+                    _jdata = json.load(_jf)
+                for _user in _jdata.get("includes", {}).get("users", []):
+                    if _user.get("username", "").lower() == _username:
+                        _ents = _user.get("entities", {}).get("description", {})
+                        if _ents.get("mentions") or _ents.get("urls"):
+                            _prof["bio_entities"] = _ents
+                            with open(_profile_path, "w", encoding="utf-8") as _pfw:
+                                json.dump(_prof, _pfw, ensure_ascii=False, indent=2)
+                            safe_print(f"[build-index] 已更新 profile.json bio_entities")
+                            _found_entities = True
+                            break
+            except Exception:
+                pass
+            if _found_entities:
+                break
+
     index_data: list[dict] = []
     no_date: list[str] = []
     no_json: list[str] = []
@@ -3547,6 +3590,7 @@ def cmd_build_index(args: argparse.Namespace) -> int:
             "remove_urls":         meta.get("remove_urls", []),
             "embedded_remove_urls":meta.get("embedded_remove_urls", []),
             "is_virtual":      False,
+            "is_pinned":       bool(pinned_tweet_id and meta["tweet_id"] == pinned_tweet_id),
         }
         index_data.append(record)
 
