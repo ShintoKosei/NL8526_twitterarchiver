@@ -1,9 +1,9 @@
-## @NL8526 的推文存档
+## @NL8526_twitterarchiver 的推文存档
 
-本仓库为 [@NL8526](https://x.com/NL8526) 的 Twitter/X 推文存档，
+本仓库为 [@NL8526_twitterarchiver](https://twitter.com/NL8526_twitterarchiver) 的 Twitter/X 推文存档，
 通过 [Wayback Machine](https://web.archive.org) 抓取，使用 GitHub Pages 自动部署。
 
-🔗 在线阅读：**https://shintokosei.github.io/NL8526/**
+🔗 在线阅读：**https://ShintoKosei.github.io/NL8526_twitterarchiver/**
 
 ---
 
